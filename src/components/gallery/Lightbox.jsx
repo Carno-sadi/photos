@@ -1,20 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { listAllPhotos, deletePhoto } from '../lib/supabase'
+import { useState, useEffect, useRef } from 'react'
+import { downloadPhoto } from '../../lib/download'
+import DeleteConfirmDialog from './DeleteConfirmDialog'
 
-export default function PhotoDetail() {
-  const { id } = useParams()
-  const navigate = useNavigate()
-  const [photo, setPhoto] = useState(null)
-  const [photos, setPhotos] = useState([])
-  const [loading, setLoading] = useState(true)
+export default function Lightbox({ photos, currentIndex, onClose, onNavigate, onDelete }) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [uiVisible, setUiVisible] = useState(true)
   const [loaded, setLoaded] = useState(false)
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   const hideTimer = useRef(null)
@@ -22,81 +17,84 @@ export default function PhotoDetail() {
   const touchStartX = useRef(0)
   const touchStartY = useRef(0)
   const touchStartTime = useRef(0)
-  const imgRef = useRef(null)
   const isMounted = useRef(true)
+  const onCloseRef = useRef(onClose)
+  const onNavigateRef = useRef(onNavigate)
+  const currentIndexRef = useRef(currentIndex)
+  const totalRef = useRef(photos.length)
+
+  onCloseRef.current = onClose
+  onNavigateRef.current = onNavigate
+  currentIndexRef.current = currentIndex
+  totalRef.current = photos.length
+
+  const photo = photos[currentIndex]
+  const total = photos.length
 
   useEffect(() => {
     isMounted.current = true
-    listAllPhotos().then((items) => {
-      if (!isMounted.current) return
-      setPhotos(items)
-      setPhoto(items.find((p) => p.id === id) || null)
-      setLoading(false)
-    })
     return () => { isMounted.current = false }
-  }, [id])
-
-  const idx = photos.findIndex((p) => p.id === id)
-
-  function go(delta) {
-    const next = idx + delta
-    if (next >= 0 && next < photos.length) {
-      setConfirmingDelete(false)
-      setLoaded(false)
-      setZoom(1)
-      setPan({ x: 0, y: 0 })
-      navigate(`/photo/${encodeURIComponent(photos[next].id)}`, { replace: true })
-    }
-  }
+  }, [])
 
   function resetZoom() {
     setZoom(1)
     setPan({ x: 0, y: 0 })
   }
 
-  async function handleDelete() {
-    if (!confirmingDelete) {
-      setConfirmingDelete(true)
-      return
-    }
-    setDeleting(true)
-    const { error } = await deletePhoto(photo.id)
-    if (!error && isMounted.current) navigate('/', { replace: true })
-    if (isMounted.current) {
-      setDeleting(false)
-      setConfirmingDelete(false)
+  function showUi() {
+    if (!isMounted.current) return
+    setUiVisible(true)
+    clearTimeout(hideTimer.current)
+    hideTimer.current = setTimeout(() => { if (isMounted.current) setUiVisible(false) }, 3000)
+  }
+
+  function go(delta) {
+    const next = currentIndexRef.current + delta
+    if (next >= 0 && next < totalRef.current) {
+      setShowDelete(false)
+      setLoaded(false)
+      resetZoom()
+      onNavigateRef.current(delta)
     }
   }
 
-  const showUi = useCallback(() => {
-    if (!isMounted.current) return
-    setUiVisible(true)
-    setConfirmingDelete(false)
-    clearTimeout(hideTimer.current)
-    hideTimer.current = setTimeout(() => { if (isMounted.current) setUiVisible(false) }, 3000)
-  }, [])
+  useEffect(() => {
+    showUi()
+  }, [currentIndex])
 
-  const handleKey = useCallback((e) => {
-    if (e.key === 'Escape') navigate('/')
-    if (e.key === 'ArrowRight') go(1)
-    if (e.key === 'ArrowLeft') go(-1)
-    if (e.key === '+' || e.key === '=') setZoom((z) => Math.min(5, z + 0.25))
-    if (e.key === '-') setZoom((z) => Math.max(1, z - 0.25))
-  }, [idx, photos])
+  async function handleDelete() {
+    if (!photo) return
+    setDeleting(true)
+    await onDelete(photo.id)
+    if (isMounted.current) {
+      setShowDelete(false)
+      setDeleting(false)
+    }
+  }
 
   useEffect(() => {
+    function handleKey(e) {
+      if (e.key === 'Escape') onCloseRef.current()
+      if (e.key === 'ArrowRight') go(1)
+      if (e.key === 'ArrowLeft') go(-1)
+      if (e.key === '+' || e.key === '=') setZoom((z) => Math.min(5, z + 0.25))
+      if (e.key === '-') setZoom((z) => Math.max(1, z - 0.25))
+    }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [handleKey])
+  }, [])
 
   useEffect(() => {
     showUi()
     return () => clearTimeout(hideTimer.current)
-  }, [id])
+  }, [currentIndex])
 
   useEffect(() => {
-    return () => { clearTimeout(hideTimer.current) }
-  }, [])
+    const next = photos[currentIndex + 1]
+    const prev = photos[currentIndex - 1]
+    if (next) { const img = new Image(); img.src = next.url }
+    if (prev) { const img = new Image(); img.src = prev.url }
+  }, [currentIndex, photos])
 
   function handleWheel(e) {
     e.preventDefault()
@@ -155,18 +153,13 @@ export default function PhotoDetail() {
     }
   }
 
-  if (loading) return null
-  if (!photo) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-surface text-muted">
-        <p>Photo not found</p>
-      </div>
-    )
+  function handleDownload() {
+    if (photo) downloadPhoto(photo.url, photo.name)
   }
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-surface flex flex-col"
+      className="fixed inset-0 z-50 bg-black flex flex-col"
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -181,19 +174,25 @@ export default function PhotoDetail() {
           uiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
-        <button onClick={(e) => { e.stopPropagation(); navigate('/') }} className="p-2 text-white/80 hover:text-white transition-colors active:scale-90">
+        <button onClick={(e) => { e.stopPropagation(); onClose() }} className="p-2 text-white/80 hover:text-white transition-colors active:scale-90">
           <span className="material-symbols-outlined text-[22px] sm:text-2xl">close</span>
         </button>
         <div className="flex items-center gap-1 sm:gap-2">
-          <span className="text-[11px] sm:text-xs text-white/50 mr-1">{idx + 1}/{photos.length}</span>
+          <span className="text-[11px] sm:text-xs text-white/50 mr-1">{currentIndex + 1}/{total}</span>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleDownload() }}
+            className="p-2 text-white/50 hover:text-white transition-colors active:scale-90"
+            aria-label="Download"
+          >
+            <span className="material-symbols-outlined text-[18px] sm:text-[20px]">download</span>
+          </button>
           {deleting ? (
             <span className="w-4 h-4 border border-white/50 border-t-transparent rounded-full animate-spin mx-2" />
           ) : (
             <button
-              onClick={(e) => { e.stopPropagation(); handleDelete() }}
-              className={`p-2 transition-colors active:scale-90 ${
-                confirmingDelete ? 'text-red-400' : 'text-white/50 hover:text-red-400'
-              }`}
+              onClick={(e) => { e.stopPropagation(); setShowDelete(true) }}
+              className="p-2 text-white/50 hover:text-red-400 transition-colors active:scale-90"
+              aria-label="Delete"
             >
               <span className="material-symbols-outlined text-[18px] sm:text-[20px]">delete</span>
             </button>
@@ -207,10 +206,9 @@ export default function PhotoDetail() {
         </div>
       </div>
 
-      <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-black">
+      <div className="flex-1 relative flex items-center justify-center overflow-hidden">
         <img
-          ref={imgRef}
-          src={photo.url}
+          src={photo?.url}
           alt=""
           onLoad={() => { if (isMounted.current) setLoaded(true) }}
           className={`max-w-full max-h-full object-contain select-none transition-all duration-150 ${
@@ -223,7 +221,7 @@ export default function PhotoDetail() {
           draggable={false}
         />
 
-        {idx > 0 && (
+        {currentIndex > 0 && (
           <button
             onClick={(e) => { e.stopPropagation(); go(-1) }}
             className={`absolute left-1 sm:left-2 md:left-4 z-10 p-2 sm:p-2.5 rounded-full bg-white/10 text-white/80 hover:bg-white/20 hover:text-white transition-all duration-300 active:scale-90 backdrop-blur-sm ${
@@ -234,7 +232,7 @@ export default function PhotoDetail() {
           </button>
         )}
 
-        {idx < photos.length - 1 && (
+        {currentIndex < total - 1 && (
           <button
             onClick={(e) => { e.stopPropagation(); go(1) }}
             className={`absolute right-1 sm:right-2 md:right-4 z-10 p-2 sm:p-2.5 rounded-full bg-white/10 text-white/80 hover:bg-white/20 hover:text-white transition-all duration-300 active:scale-90 backdrop-blur-sm ${
@@ -245,6 +243,13 @@ export default function PhotoDetail() {
           </button>
         )}
       </div>
+
+      <DeleteConfirmDialog
+        isOpen={showDelete}
+        onCancel={() => setShowDelete(false)}
+        onConfirm={handleDelete}
+        deleting={deleting}
+      />
     </div>
   )
 }
