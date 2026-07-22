@@ -218,7 +218,7 @@ export default function SessionController({ items, activeMood, onEndSession, onS
   if (status === 'active') {
     return (
       <div
-        className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center select-none overflow-hidden"
+        className="fixed inset-0 z-[100] bg-black select-none overflow-hidden"
         onTouchMove={isMobile ? (e) => e.preventDefault() : undefined}
       >
         {currentItem && (
@@ -237,31 +237,37 @@ export default function SessionController({ items, activeMood, onEndSession, onS
 
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/40 pointer-events-none" />
 
-        <div className="relative z-10 text-center">
-          <div className={`text-6xl font-light mb-4 transition-colors duration-500 ${
-            timeLeft <= 10 ? 'text-red-400' : 'text-white'
-          }`}>
-            {formatTime(timeLeft)}
+        <div className="relative z-10 w-full h-full flex flex-col">
+          <div className="flex items-start justify-between px-4 pt-4">
+            <div className={`font-mono text-lg font-light transition-colors duration-500 ${
+              timeLeft <= 10 ? 'text-red-400' : 'text-white/80'
+            }`}>
+              {formatTime(timeLeft)}
+            </div>
+            {items.length > 0 && (
+              <div className="text-xs text-white/40 font-mono">
+                {slideIndex + 1}/{items.length}
+              </div>
+            )}
           </div>
-          <p className="text-xs text-white/50">Intimate Session</p>
 
           {timeLeft <= 10 && (
-            <p className="text-[10px] text-red-400/60 mt-2 animate-pulse">Session ending soon</p>
+            <div className="px-4">
+              <p className="text-[10px] text-red-400/60 animate-pulse">Session ending soon</p>
+            </div>
           )}
 
-          {items.length > 0 && (
-            <p className="text-[10px] text-white/30 mt-3">
-              {slideIndex + 1} / {items.length}
-            </p>
-          )}
+          <div className="flex-1" />
+
+          <div className="px-4 pb-4">
+            <button
+              onClick={endSession}
+              className="px-4 py-1.5 bg-white/5 text-white/40 hover:text-white/70 text-[10px] rounded-lg border border-white/10 transition-all active:scale-95"
+            >
+              End Early
+            </button>
+          </div>
         </div>
-
-        <button
-          onClick={endSession}
-          className="relative z-10 mt-12 px-6 py-2 bg-white/5 text-white/40 hover:text-white/70 text-xs rounded-lg border border-white/10 transition-all active:scale-95"
-        >
-          End Session Early
-        </button>
       </div>
     )
   }
