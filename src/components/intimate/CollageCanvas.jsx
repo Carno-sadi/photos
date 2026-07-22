@@ -18,7 +18,7 @@ export default function CollageCanvas({ items, onClose }) {
       {
         id,
         itemId: item.id,
-        url: item.blobData ? URL.createObjectURL(item.blobData) : item.url,
+        url: item.url,
         x: Math.random() * (w - 160),
         y: Math.random() * (h - 160),
         w: 160,
@@ -212,7 +212,7 @@ export default function CollageCanvas({ items, onClose }) {
             </div>
           )}
           {availableItems.map((item) => {
-            const url = item.blobData ? URL.createObjectURL(item.blobData) : item.url
+            const url = item.url
             return (
               <button
                 key={item.id}

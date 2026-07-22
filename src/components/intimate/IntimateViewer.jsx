@@ -74,11 +74,6 @@ export default function IntimateViewer({ items, currentIndex, onClose, onNavigat
     return () => clearInterval(slideshowTimer.current)
   }, [slideshow, slideshowDelay])
 
-  function getUrl(item) {
-    if (item.blobData) return URL.createObjectURL(item.blobData)
-    return item.url
-  }
-
   useEffect(() => {
     function handleKey(e) {
       if (e.key === 'Escape') onCloseRef.current()
@@ -208,7 +203,7 @@ export default function IntimateViewer({ items, currentIndex, onClose, onNavigat
 
       <div className="flex-1 relative flex items-center justify-center overflow-hidden">
         <img
-          src={item ? getUrl(item) : ''}
+          src={item ? item.url : ''}
           alt=""
           key={currentIndex}
           onLoad={() => { if (isMounted.current) setLoaded(true) }}

@@ -1,25 +1,13 @@
-import { useState, useRef } from 'react'
-import { updateMediaTags } from '../../lib/intimateDb'
+import { useState } from 'react'
+import { setTags } from '../../lib/intimateDb'
 
-export default function IntimateImageCard({ item, onOpen, onDelete }) {
+export default function IntimateImageCard({ item, onOpen, onDelete, onTagsChanged }) {
   const [loaded, setLoaded] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [showTagEditor, setShowTagEditor] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [tagInput, setTagInput] = useState('')
-
-  const urlRef = useRef(null)
-  const tags = item.tags || []
-
-  function getUrl() {
-    if (item.blobData) {
-      if (!urlRef.current) {
-        urlRef.current = URL.createObjectURL(item.blobData)
-      }
-      return urlRef.current
-    }
-    return item.url
-  }
+  const [tags, setLocalTags] = useState(item.tags || [])
 
   async function handleDelete() {
     setDeleting(true)
@@ -32,22 +20,26 @@ export default function IntimateImageCard({ item, onOpen, onDelete }) {
     const tag = tagInput.trim().toLowerCase()
     if (!tag || tags.includes(tag)) return
     const newTags = [...tags, tag]
-    await updateMediaTags(item.id, newTags)
+    await setTags(item.id, newTags)
+    setLocalTags(newTags)
     item.tags = newTags
     setTagInput('')
     setShowTagEditor(false)
+    if (onTagsChanged) onTagsChanged()
   }
 
   async function handleRemoveTag(tag) {
     const newTags = tags.filter((t) => t !== tag)
-    await updateMediaTags(item.id, newTags)
+    await setTags(item.id, newTags)
+    setLocalTags(newTags)
     item.tags = newTags
+    if (onTagsChanged) onTagsChanged()
   }
 
-  async function handleTagKeyDown(e) {
+  function handleTagKeyDown(e) {
     if (e.key === 'Enter') {
       e.preventDefault()
-      await handleAddTag()
+      handleAddTag()
     }
   }
 
@@ -55,9 +47,11 @@ export default function IntimateImageCard({ item, onOpen, onDelete }) {
     return async () => {
       if (tags.includes(tag)) return
       const newTags = [...tags, tag]
-      await updateMediaTags(item.id, newTags)
+      await setTags(item.id, newTags)
+      setLocalTags(newTags)
       item.tags = newTags
       setShowTagEditor(false)
+      if (onTagsChanged) onTagsChanged()
     }
   }
 
@@ -67,7 +61,7 @@ export default function IntimateImageCard({ item, onOpen, onDelete }) {
     <>
       <div className="relative group aspect-square overflow-hidden rounded-lg bg-surface-high fade-in">
         <img
-          src={getUrl()}
+          src={item.url}
           alt={item.name || ''}
           onLoad={() => setLoaded(true)}
           className={`w-full h-full object-cover transition-all duration-500 cursor-pointer ${
@@ -116,7 +110,7 @@ export default function IntimateImageCard({ item, onOpen, onDelete }) {
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm fade-in-fast">
           <div className="bg-surface-elevated rounded-xl p-5 mx-4 max-w-xs w-full shadow-xl">
             <h3 className="text-sm font-medium text-accent mb-2">Remove this item?</h3>
-            <p className="text-xs text-muted mb-4">This will remove it from your intimate collection.</p>
+            <p className="text-xs text-muted mb-4">This will permanently delete the file.</p>
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setShowDelete(false)}
@@ -132,7 +126,7 @@ export default function IntimateImageCard({ item, onOpen, onDelete }) {
                 {deleting ? (
                   <span className="w-3 h-3 border border-red-400 border-t-transparent rounded-full animate-spin inline-block" />
                 ) : (
-                  'Remove'
+                  'Delete'
                 )}
               </button>
             </div>

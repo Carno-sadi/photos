@@ -1,7 +1,7 @@
 import { openDB } from 'idb'
 
 const DB_NAME = 'intimate-db'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 let dbPromise = null
 
@@ -9,11 +9,9 @@ function getDb() {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
       upgrade(db) {
-        if (!db.objectStoreNames.contains('media_items')) {
-          const store = db.createObjectStore('media_items', { keyPath: 'id' })
-          store.createIndex('entityId', 'entityId')
-          store.createIndex('tags', 'tags', { multiEntry: true })
-          store.createIndex('createdAt', 'createdAt')
+        if (!db.objectStoreNames.contains('metatags')) {
+          const store = db.createObjectStore('metatags', { keyPath: 'id' })
+          store.createIndex('tag', 'tags', { multiEntry: true })
         }
         if (!db.objectStoreNames.contains('playlists')) {
           db.createObjectStore('playlists', { keyPath: 'id' })
@@ -21,73 +19,32 @@ function getDb() {
         if (!db.objectStoreNames.contains('session_config')) {
           db.createObjectStore('session_config', { keyPath: 'key' })
         }
+        if (db.objectStoreNames.contains('media_items')) {
+          db.deleteObjectStore('media_items')
+        }
       },
     })
   }
   return dbPromise
 }
 
-export async function addMediaItem(item) {
+export async function getTags(id) {
   const db = await getDb()
-  return db.add('media_items', item)
+  const entry = await db.get('metatags', id)
+  return entry ? entry.tags : []
 }
 
-export async function putMediaItem(item) {
+export async function setTags(id, tags) {
   const db = await getDb()
-  return db.put('media_items', item)
+  return db.put('metatags', { id, tags })
 }
 
-export async function getAllMedia(entityId = 'default') {
+export async function getAllTags() {
   const db = await getDb()
-  return db.getAllFromIndex('media_items', 'entityId', entityId)
-}
-
-export async function getMediaById(id) {
-  const db = await getDb()
-  return db.get('media_items', id)
-}
-
-export async function deleteMedia(id) {
-  const db = await getDb()
-  return db.delete('media_items', id)
-}
-
-export async function updateMediaTags(id, tags) {
-  const db = await getDb()
-  const item = await db.get('media_items', id)
-  if (item) {
-    item.tags = tags
-    return db.put('media_items', item)
-  }
-}
-
-export async function getRandomMedia(entityId = 'default') {
-  const db = await getDb()
-  const all = await db.getAllFromIndex('media_items', 'entityId', entityId)
-  if (all.length === 0) return null
-  return all[Math.floor(Math.random() * all.length)]
-}
-
-export async function fetchImageAsBlob(url) {
-  const response = await fetch(url)
-  if (!response.ok) throw new Error('Failed to fetch image')
-  return response.blob()
-}
-
-export async function importFromUrl(url, name, tags = [], entityId = 'default') {
-  const blobData = await fetchImageAsBlob(url)
-  const id = crypto.randomUUID()
-  const item = {
-    id,
-    entityId,
-    blobData,
-    mimeType: blob.type,
-    tags,
-    name,
-    createdAt: Date.now(),
-  }
-  await addMediaItem(item)
-  return id
+  const all = await db.getAll('metatags')
+  const tagSet = new Set()
+  all.forEach((entry) => (entry.tags || []).forEach((t) => tagSet.add(t)))
+  return Array.from(tagSet).sort()
 }
 
 export async function savePlaylist(playlist) {

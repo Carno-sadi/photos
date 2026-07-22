@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { getAllMedia, deleteMedia, importFromUrl } from '../../lib/intimateDb'
-import { listAllPhotos } from '../../lib/supabase'
+import { listIntimatePhotos, uploadToIntimate, deleteIntimatePhoto, copyFromGalleryToIntimate, listAllPhotos } from '../../lib/supabase'
+import { getTags, getAllTags } from '../../lib/intimateDb'
 import IntimateImageCard from './IntimateImageCard'
 import IntimateViewer from './IntimateViewer'
 import CollageCanvas from './CollageCanvas'
@@ -9,8 +9,6 @@ import AudioPlayer from './AudioPlayer'
 import SessionController from './SessionController'
 import RandomMomentButton from './RandomMomentButton'
 import EmptyState from './EmptyState'
-
-const MAX_IMAGE_SIZE = 15 * 1024 * 1024
 
 export default function IntimateContainer({ onLock }) {
   const [items, setItems] = useState([])
@@ -21,13 +19,17 @@ export default function IntimateContainer({ onLock }) {
   const [galleryPhotos, setGalleryPhotos] = useState([])
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState(0)
+  const [uploadProgress, setUploadProgress] = useState(0) // eslint-disable-line no-unused-vars
   const [sessionMode, setSessionMode] = useState(false)
   const [activeMood, setActiveMood] = useState('none')
   const [activeTag, setActiveTag] = useState(null)
   const [importError, setImportError] = useState('')
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [allTagsList, setAllTagsList] = useState([])
 
   const isMounted = useRef(true)
   const audioRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     isMounted.current = true
@@ -37,27 +39,29 @@ export default function IntimateContainer({ onLock }) {
 
   async function loadItems() {
     setLoading(true)
-    const all = await getAllMedia()
+    const [photos, tagsList] = await Promise.all([
+      listIntimatePhotos(),
+      getAllTags(),
+    ])
+    const withTags = await Promise.all(
+      photos.map(async (p) => {
+        const tags = await getTags(p.id)
+        return { ...p, tags }
+      })
+    )
     if (isMounted.current) {
-      setItems(all)
+      setItems(withTags)
+      setAllTagsList(tagsList)
       setLoading(false)
     }
   }
-
-  function getAllTags() {
-    const tagSet = new Set()
-    items.forEach((item) => (item.tags || []).forEach((t) => tagSet.add(t)))
-    return Array.from(tagSet).sort()
-  }
-
-  const allTags = getAllTags()
 
   const filteredItems = activeTag
     ? items.filter((item) => (item.tags || []).includes(activeTag))
     : items
 
   async function handleDelete(id) {
-    await deleteMedia(id)
+    await deleteIntimatePhoto(id)
     setItems((prev) => prev.filter((i) => i.id !== id))
   }
 
@@ -82,6 +86,7 @@ export default function IntimateContainer({ onLock }) {
 
   async function handleOpenImport() {
     setImportError('')
+    setSelectedIds(new Set())
     const photos = await listAllPhotos()
     if (isMounted.current) {
       setGalleryPhotos(photos)
@@ -93,48 +98,78 @@ export default function IntimateContainer({ onLock }) {
     setActiveTag((prev) => (prev === tag ? null : tag))
   }
 
-  async function handleImport(galleryItem) {
+  function toggleSelect(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function handleImportSelected() {
+    if (selectedIds.size === 0) return
     setImportError('')
-    if (galleryItem.size && galleryItem.size > MAX_IMAGE_SIZE) {
-      setImportError(`"${galleryItem.name}" exceeds 15MB limit`)
-      return
-    }
     setImporting(true)
-    try {
-      await importFromUrl(galleryItem.url, galleryItem.name, [], 'default')
-      await loadItems()
-      setImportError('')
-    } catch {
-      setImportError('Failed to import image')
+    const selected = galleryPhotos.filter((p) => selectedIds.has(p.id))
+    let imported = 0
+    let hasError = false
+    for (const photo of selected) {
+      if (!isMounted.current) break
+      try {
+        await copyFromGalleryToIntimate(photo.id)
+        imported++
+        setImportProgress(Math.round((imported / selected.length) * 100))
+      } catch {
+        hasError = true
+      }
     }
+    if (hasError) setImportError('Some imports failed. Check the console.')
+    await loadItems()
     setImporting(false)
-    setShowImport(false)
   }
 
   async function handleImportAll() {
     setImportError('')
     setImporting(true)
-    const total = galleryPhotos.length
     let imported = 0
     let hasError = false
     for (const photo of galleryPhotos) {
       if (!isMounted.current) break
-      if (photo.size && photo.size > MAX_IMAGE_SIZE) {
-        hasError = true
-        continue
-      }
       try {
-        await importFromUrl(photo.url, photo.name, [], 'default')
+        await copyFromGalleryToIntimate(photo.id)
         imported++
-        setImportProgress(Math.round((imported / total) * 100))
+        setImportProgress(Math.round((imported / galleryPhotos.length) * 100))
       } catch {
         hasError = true
       }
     }
-    if (hasError) setImportError('Some files exceeded 15MB limit and were skipped')
+    if (hasError) setImportError('Some imports failed. Check the console.')
     await loadItems()
     setImporting(false)
-    setShowImport(false)
+  }
+
+  async function handleFileUpload(e) {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    setImportError('')
+    setImporting(true)
+    let uploaded = 0
+    let hasError = false
+    for (const file of files) {
+      if (!isMounted.current) break
+      try {
+        await uploadToIntimate(file)
+        uploaded++
+        setUploadProgress(Math.round((uploaded / files.length) * 100))
+      } catch {
+        hasError = true
+      }
+    }
+    if (hasError) setImportError('Some uploads failed.')
+    await loadItems()
+    setImporting(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   function handleSessionStart() {
@@ -145,6 +180,11 @@ export default function IntimateContainer({ onLock }) {
 
   function handleEndSession() {
     setSessionMode(false)
+  }
+
+  async function refreshTagsList() {
+    const tags = await getAllTags()
+    setAllTagsList(tags)
   }
 
   if (sessionMode) {
@@ -177,9 +217,9 @@ export default function IntimateContainer({ onLock }) {
 
         <MoodFilterBar activeMood={activeMood} onMoodChange={setActiveMood} />
 
-        {allTags.length > 0 && (
+        {allTagsList.length > 0 && (
           <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto no-scrollbar">
-            {allTags.map((tag) => (
+            {allTagsList.map((tag) => (
               <button
                 key={tag}
                 onClick={() => handleTagSelect(tag)}
@@ -221,6 +261,18 @@ export default function IntimateContainer({ onLock }) {
             <span className="material-symbols-outlined text-[16px]">add_photo_alternate</span>
             Import
           </button>
+          <label className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium bg-surface-high text-muted hover:text-accent transition-all active:scale-90 cursor-pointer">
+            <span className="material-symbols-outlined text-[16px]">upload</span>
+            Upload
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+          </label>
         </div>
       )}
 
@@ -233,7 +285,7 @@ export default function IntimateContainer({ onLock }) {
           ))}
         </div>
       ) : filteredItems.length === 0 ? (
-        <EmptyState onImport={handleOpenImport} />
+        <EmptyState onImport={handleOpenImport} onUpload={() => fileInputRef.current?.click()} />
       ) : (
         <div className="gallery-grid px-2 sm:px-4 md:px-6 pt-2 fade-in">
           {filteredItems.map((item) => (
@@ -242,6 +294,7 @@ export default function IntimateContainer({ onLock }) {
               item={item}
               onOpen={handleOpenViewer}
               onDelete={handleDelete}
+              onTagsChanged={refreshTagsList}
             />
           ))}
         </div>
@@ -270,22 +323,41 @@ export default function IntimateContainer({ onLock }) {
               <span className="material-symbols-outlined text-[22px]">close</span>
             </button>
             <h2 className="text-sm font-medium text-accent">Import from Gallery</h2>
-            <button
-              onClick={handleImportAll}
-              disabled={importing || galleryPhotos.length === 0}
-              className={`px-3 py-1.5 text-[11px] font-medium rounded-lg transition-all active:scale-95 ${
-                importing || galleryPhotos.length === 0
-                  ? 'bg-surface-high text-muted'
-                  : 'bg-accent text-surface'
-              }`}
-            >
-              {importing ? `Importing ${importProgress}%` : `Import All (${galleryPhotos.length})`}
-            </button>
+            <div className="flex items-center gap-1">
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={handleImportSelected}
+                  disabled={importing}
+                  className={`px-3 py-1.5 text-[11px] font-medium rounded-lg transition-all active:scale-95 ${
+                    importing ? 'bg-surface-high text-muted' : 'bg-accent text-surface'
+                  }`}
+                >
+                  {importing ? `Importing ${importProgress}%` : `Import (${selectedIds.size})`}
+                </button>
+              )}
+              <button
+                onClick={handleImportAll}
+                disabled={importing || galleryPhotos.length === 0}
+                className={`px-3 py-1.5 text-[11px] font-medium rounded-lg transition-all active:scale-95 ${
+                  importing || galleryPhotos.length === 0
+                    ? 'bg-surface-high text-muted'
+                    : 'bg-accent text-surface'
+                }`}
+              >
+                {importing ? `Importing ${importProgress}%` : `All (${galleryPhotos.length})`}
+              </button>
+            </div>
           </div>
 
           {importError && (
             <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/20">
               <p className="text-[10px] text-red-400">{importError}</p>
+            </div>
+          )}
+
+          {importing && (
+            <div className="px-3 py-1.5 bg-accent/5 border-b border-accent/10">
+              <p className="text-[10px] text-accent/70">Processing...</p>
             </div>
           )}
 
@@ -296,26 +368,40 @@ export default function IntimateContainer({ onLock }) {
               </div>
             ) : (
               <div className="gallery-grid px-2 sm:px-4 md:px-6 pt-3 pb-6">
-                {galleryPhotos.map((photo) => (
-                  <button
-                    key={photo.id}
-                    onClick={() => handleImport(photo)}
-                    disabled={importing}
-                    className="aspect-square rounded-lg overflow-hidden bg-surface-high group relative active:scale-95 transition-transform"
-                  >
-                    <img
-                      src={photo.url}
-                      alt={photo.name}
-                      className="w-full h-full object-cover"
-                      draggable={false}
-                    />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center">
-                      <span className="material-symbols-outlined text-white/0 group-hover:text-white/80 text-2xl transition-all">
-                        add_circle
-                      </span>
-                    </div>
-                  </button>
-                ))}
+                {galleryPhotos.map((photo) => {
+                  const isSelected = selectedIds.has(photo.id)
+                  return (
+                    <button
+                      key={photo.id}
+                      onClick={() => { if (!importing) toggleSelect(photo.id) }}
+                      disabled={importing}
+                      className={`aspect-square rounded-lg overflow-hidden bg-surface-high group relative active:scale-95 transition-all ${
+                        isSelected ? 'ring-2 ring-accent' : ''
+                      }`}
+                    >
+                      <img
+                        src={photo.url}
+                        alt={photo.name}
+                        className={`w-full h-full object-cover transition-all ${
+                          isSelected ? 'opacity-60' : ''
+                        }`}
+                        draggable={false}
+                      />
+                      <div className={`absolute top-1.5 right-1.5 w-5 h-5 rounded-full border-2 transition-all flex items-center justify-center ${
+                        isSelected ? 'bg-accent border-accent' : 'border-white/50 bg-black/30'
+                      }`}>
+                        {isSelected && (
+                          <span className="material-symbols-outlined text-[12px] text-surface">check</span>
+                        )}
+                      </div>
+                      <div className="absolute bottom-1 left-1 right-1">
+                        <p className="text-[8px] text-white/70 truncate text-left px-1 drop-shadow-md">
+                          {photo.name}
+                        </p>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>
