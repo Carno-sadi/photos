@@ -1,15 +1,26 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-export default function SessionController({ onEndSession, onSessionStart }) {
+const MOOD_FILTERS = {
+  none: '',
+  dim: 'brightness(0.65) contrast(1.15)',
+  candle: 'sepia(0.6) hue-rotate(-20deg) contrast(1.1) brightness(0.85)',
+  red: 'sepia(1) hue-rotate(300deg) saturate(3) brightness(0.7)',
+  soft: 'brightness(1.05) contrast(0.9) blur(0.4px)',
+}
+
+export default function SessionController({ items, activeMood, onEndSession, onSessionStart }) {
   const [status, setStatus] = useState('idle')
   const [timeLeft, setTimeLeft] = useState(300)
   const [showWarning, setShowWarning] = useState(false) // eslint-disable-line no-unused-vars
+  const [slideIndex, setSlideIndex] = useState(0)
+  const [slideLoaded, setSlideLoaded] = useState(false)
 
   const isMounted = useRef(true)
   const sessionActiveRef = useRef(false)
   const onEndRef = useRef(onEndSession)
   const onStartRef = useRef(onSessionStart)
   const workerRef = useRef(null)
+  const slideTimerRef = useRef(null)
 
   onEndRef.current = onEndSession
   onStartRef.current = onSessionStart
@@ -19,6 +30,7 @@ export default function SessionController({ onEndSession, onSessionStart }) {
   const supportsPointerLock = typeof document.documentElement.requestPointerLock === 'function'
   const supportsKeyboardLock = typeof navigator.keyboard?.lock === 'function'
   const isMobile = !supportsFullscreen || !supportsPointerLock
+  const slideshowDelay = 8
 
   useEffect(() => {
     isMounted.current = true
@@ -65,6 +77,8 @@ export default function SessionController({ onEndSession, onSessionStart }) {
     requestFullscreen()
     requestPointerLock()
     requestKeyboardLock()
+    setSlideIndex(0)
+    setSlideLoaded(false)
 
     if (onStartRef.current) onStartRef.current()
 
@@ -107,6 +121,10 @@ export default function SessionController({ onEndSession, onSessionStart }) {
     if (workerRef.current) {
       workerRef.current.terminate()
       workerRef.current = null
+    }
+    if (slideTimerRef.current) {
+      clearInterval(slideTimerRef.current)
+      slideTimerRef.current = null
     }
     exitFullscreen()
     exitPointerLock()
@@ -186,28 +204,61 @@ export default function SessionController({ onEndSession, onSessionStart }) {
     return `${m}:${sec.toString().padStart(2, '0')}`
   }
 
+  useEffect(() => {
+    if (status !== 'active' || !items.length) return
+    slideTimerRef.current = setInterval(() => {
+      setSlideIndex((prev) => (prev + 1) % items.length)
+      setSlideLoaded(false)
+    }, slideshowDelay * 1000)
+    return () => clearInterval(slideTimerRef.current)
+  }, [status, items.length])
+
+  const currentItem = items.length > 0 ? items[slideIndex % items.length] : null
+
   if (status === 'active') {
     return (
       <div
-        className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center select-none"
+        className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center select-none overflow-hidden"
         onTouchMove={isMobile ? (e) => e.preventDefault() : undefined}
       >
-        <div className="text-center">
+        {currentItem && (
+          <img
+            src={currentItem.url}
+            alt=""
+            key={slideIndex}
+            onLoad={() => setSlideLoaded(true)}
+            className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-700 ${
+              slideLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
+            style={{ filter: MOOD_FILTERS[activeMood] || 'none' }}
+            draggable={false}
+          />
+        )}
+
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/40 pointer-events-none" />
+
+        <div className="relative z-10 text-center">
           <div className={`text-6xl font-light mb-4 transition-colors duration-500 ${
-            timeLeft <= 10 ? 'text-red-400' : 'text-accent'
+            timeLeft <= 10 ? 'text-red-400' : 'text-white'
           }`}>
             {formatTime(timeLeft)}
           </div>
-          <p className="text-xs text-muted/60">Intimate Session</p>
+          <p className="text-xs text-white/50">Intimate Session</p>
 
           {timeLeft <= 10 && (
             <p className="text-[10px] text-red-400/60 mt-2 animate-pulse">Session ending soon</p>
+          )}
+
+          {items.length > 0 && (
+            <p className="text-[10px] text-white/30 mt-3">
+              {slideIndex + 1} / {items.length}
+            </p>
           )}
         </div>
 
         <button
           onClick={endSession}
-          className="mt-12 px-6 py-2 bg-white/5 text-white/40 hover:text-white/70 text-xs rounded-lg border border-white/10 transition-all active:scale-95"
+          className="relative z-10 mt-12 px-6 py-2 bg-white/5 text-white/40 hover:text-white/70 text-xs rounded-lg border border-white/10 transition-all active:scale-95"
         >
           End Session Early
         </button>

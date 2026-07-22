@@ -276,7 +276,7 @@ export default function IntimateContainer({ onLock }) {
         </div>
       )}
 
-      <SessionController onEndSession={handleEndSession} onSessionStart={handleSessionStart} />
+      <SessionController items={filteredItems} activeMood={activeMood} onEndSession={handleEndSession} onSessionStart={handleSessionStart} />
 
       {loading ? (
         <div className="gallery-grid px-2 sm:px-4 md:px-6 pt-4">
