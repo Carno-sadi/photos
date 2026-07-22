@@ -11,7 +11,7 @@ import RandomMomentButton from './RandomMomentButton'
 import AnimationViewer2d from './AnimationViewer2d'
 import EmptyState from './EmptyState'
 
-export default function IntimateContainer({ onLock }) {
+export default function IntimateContainer({ onLock, autoAnimate }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [viewerIndex, setViewerIndex] = useState(null)
@@ -55,6 +55,9 @@ export default function IntimateContainer({ onLock }) {
       setItems(withTags)
       setAllTagsList(tagsList)
       setLoading(false)
+      if (autoAnimate && withTags.length > 0) {
+        setAnimateItem(0)
+      }
     }
   }
 

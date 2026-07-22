@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { listAllPhotos, deletePhoto } from '../../lib/supabase'
 import Header from '../layout/Header'
 import ImageCard from './ImageCard'
@@ -100,6 +101,23 @@ export default function GalleryContainer() {
         onViewModeChange={handleViewModeChange}
         photoCount={photos.length}
       />
+
+      <div className="flex items-center gap-2 px-3 sm:px-6 pt-16 sm:pt-[4.5rem] pb-2">
+        <Link
+          to="/intimate"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-all active:scale-95"
+        >
+          <span className="material-symbols-outlined text-[15px]">favorite</span>
+          Intimate
+        </Link>
+        <Link
+          to="/intimate?animate=true"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-pink-600/20 to-purple-600/20 text-pink-300 hover:from-pink-600/30 hover:to-purple-600/30 transition-all active:scale-95"
+        >
+          <span className="material-symbols-outlined text-[15px]">play_circle</span>
+          Sex Page
+        </Link>
+      </div>
 
       {loading ? (
         <SkeletonLoader viewMode={viewMode} />
