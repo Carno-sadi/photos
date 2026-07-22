@@ -24,6 +24,8 @@ export default function IntimateViewer({ items, currentIndex, onClose, onNavigat
   const touchStartX = useRef(0)
   const touchStartY = useRef(0)
   const touchStartTime = useRef(0)
+  const pinchDist = useRef(0)
+  const pinchZoom = useRef(1)
   const currentIndexRef = useRef(currentIndex)
   const onNavigateRef = useRef(onNavigate)
   const onCloseRef = useRef(onClose)
@@ -107,11 +109,30 @@ export default function IntimateViewer({ items, currentIndex, onClose, onNavigat
 
   function handleMouseUp() { setDragging(false) }
 
+  function getTouchDist(touches) {
+    const dx = touches[0].clientX - touches[1].clientX
+    const dy = touches[0].clientY - touches[1].clientY
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
   function handleTouchStart(e) {
     if (e.touches.length === 1) {
       touchStartX.current = e.touches[0].clientX
       touchStartY.current = e.touches[0].clientY
       touchStartTime.current = Date.now()
+    } else if (e.touches.length === 2) {
+      pinchDist.current = getTouchDist(e.touches)
+      pinchZoom.current = zoom
+    }
+  }
+
+  function handleTouchMove(e) {
+    if (e.touches.length === 2) {
+      e.preventDefault()
+      const dist = getTouchDist(e.touches)
+      const scale = dist / pinchDist.current
+      const newZoom = Math.max(1, Math.min(5, pinchZoom.current * scale))
+      setZoom(newZoom)
     }
   }
 
@@ -134,6 +155,7 @@ export default function IntimateViewer({ items, currentIndex, onClose, onNavigat
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
       <div className="flex items-center justify-between px-2 h-10 shrink-0 bg-gradient-to-b from-black/50 to-transparent z-10">

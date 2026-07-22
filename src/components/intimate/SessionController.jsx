@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-export default function SessionController({ onEndSession }) {
+export default function SessionController({ onEndSession, onSessionStart }) {
   const [status, setStatus] = useState('idle')
   const [timeLeft, setTimeLeft] = useState(300)
   const [showWarning, setShowWarning] = useState(false) // eslint-disable-line no-unused-vars
@@ -8,10 +8,17 @@ export default function SessionController({ onEndSession }) {
   const isMounted = useRef(true)
   const sessionActiveRef = useRef(false)
   const onEndRef = useRef(onEndSession)
+  const onStartRef = useRef(onSessionStart)
+  const workerRef = useRef(null)
 
   onEndRef.current = onEndSession
+  onStartRef.current = onSessionStart
 
   const DURATION = 300
+  const supportsFullscreen = typeof document.documentElement.requestFullscreen === 'function'
+  const supportsPointerLock = typeof document.documentElement.requestPointerLock === 'function'
+  const supportsKeyboardLock = typeof navigator.keyboard?.lock === 'function'
+  const isMobile = !supportsFullscreen || !supportsPointerLock
 
   useEffect(() => {
     isMounted.current = true
@@ -19,22 +26,20 @@ export default function SessionController({ onEndSession }) {
   }, [])
 
   function requestFullscreen() {
-    const el = document.documentElement
-    if (el.requestFullscreen) {
-      el.requestFullscreen().catch(() => {})
+    if (supportsFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {})
     }
   }
 
   function requestPointerLock() {
-    const el = document.documentElement
-    if (el.requestPointerLock) {
-      el.requestPointerLock()
+    if (supportsPointerLock) {
+      document.documentElement.requestPointerLock()
     }
   }
 
   function requestKeyboardLock() {
-    if (navigator.keyboard && navigator.keyboard.lock) {
-      navigator.keyboard.lock(['Escape', 'Tab', 'MetaLeft', 'AltLeft']).catch(() => {})
+    if (supportsKeyboardLock) {
+      navigator.keyboard.lock(['Escape', 'Tab', 'MetaLeft', 'AltLeft', 'Backspace']).catch(() => {})
     }
   }
 
@@ -61,35 +66,48 @@ export default function SessionController({ onEndSession }) {
     requestPointerLock()
     requestKeyboardLock()
 
-    const storedStartTime = Date.now()
-    localStorage.setItem('intimate_session_start', storedStartTime.toString())
-    localStorage.setItem('intimate_session_duration', DURATION.toString())
+    if (onStartRef.current) onStartRef.current()
 
-    const tick = () => {
-      if (!isMounted.current || !sessionActiveRef.current) return
-      const elapsed = Math.floor((Date.now() - storedStartTime) / 1000)
-      const remaining = Math.max(0, DURATION - elapsed)
-      setTimeLeft(remaining)
-
-      if (remaining <= 0) {
-        endSession()
-        return
+    try {
+      const worker = new Worker(
+        new URL('../../lib/sessionWorker.js', import.meta.url),
+        { type: 'module' }
+      )
+      workerRef.current = worker
+      worker.postMessage({ type: 'start', duration: DURATION })
+      worker.onmessage = (e) => {
+        if (!isMounted.current || !sessionActiveRef.current) {
+          worker.terminate()
+          return
+        }
+        const { remaining } = e.data
+        setTimeLeft(remaining)
+        if (remaining <= 10) setShowWarning(true)
+        if (remaining <= 0) endSession()
       }
-
-      if (remaining <= 10) setShowWarning(true)
-
-      requestAnimationFrame(tick)
+    } catch {
+      const storedStartTime = Date.now()
+      const tick = () => {
+        if (!isMounted.current || !sessionActiveRef.current) return
+        const elapsed = Math.floor((Date.now() - storedStartTime) / 1000)
+        const remaining = Math.max(0, DURATION - elapsed)
+        setTimeLeft(remaining)
+        if (remaining <= 10) setShowWarning(true)
+        if (remaining <= 0) { endSession(); return }
+        setTimeout(tick, 200)
+      }
+      setTimeout(tick, 200)
     }
-
-    requestAnimationFrame(tick)
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function endSession() {
     if (!sessionActiveRef.current) return
     sessionActiveRef.current = false
     setStatus('idle')
-    localStorage.removeItem('intimate_session_start')
-    localStorage.removeItem('intimate_session_duration')
+    if (workerRef.current) {
+      workerRef.current.terminate()
+      workerRef.current = null
+    }
     exitFullscreen()
     exitPointerLock()
     if (onEndRef.current) onEndRef.current()
@@ -110,10 +128,16 @@ export default function SessionController({ onEndSession }) {
 
   function handleKeyDown(e) {
     if (!sessionActiveRef.current) return
-    const keysToBlock = ['Escape', 'F11', 'Tab']
+    const keysToBlock = ['Escape', 'F11', 'Tab', 'Backspace']
     if (keysToBlock.includes(e.key)) {
       e.preventDefault()
       e.stopPropagation()
+    }
+  }
+
+  function handleTouchMove(e) {
+    if (sessionActiveRef.current) {
+      e.preventDefault()
     }
   }
 
@@ -137,7 +161,9 @@ export default function SessionController({ onEndSession }) {
       document.addEventListener('fullscreenchange', handleFullscreenChange)
       document.addEventListener('pointerlockchange', handlePointerLockChange)
       document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
-
+      if (isMobile) {
+        document.addEventListener('touchmove', handleTouchMove, { passive: false })
+      }
       document.body.style.overflow = 'hidden'
     }
 
@@ -148,10 +174,11 @@ export default function SessionController({ onEndSession }) {
       document.removeEventListener('fullscreenchange', handleFullscreenChange)
       document.removeEventListener('pointerlockchange', handlePointerLockChange)
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
-
+      document.removeEventListener('touchmove', handleTouchMove)
       document.body.style.overflow = ''
     }
-  }, [status])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, isMobile])
 
   function formatTime(s) {
     const m = Math.floor(s / 60)
@@ -161,7 +188,10 @@ export default function SessionController({ onEndSession }) {
 
   if (status === 'active') {
     return (
-      <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center select-none">
+      <div
+        className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center select-none"
+        onTouchMove={isMobile ? (e) => e.preventDefault() : undefined}
+      >
         <div className="text-center">
           <div className={`text-6xl font-light mb-4 transition-colors duration-500 ${
             timeLeft <= 10 ? 'text-red-400' : 'text-accent'
@@ -195,7 +225,7 @@ export default function SessionController({ onEndSession }) {
         Start Intimate Session
       </button>
       <p className="text-[10px] text-muted/50 text-center mt-1.5">
-        5-minute focused experience with fullscreen immersion
+        5-minute focused experience {isMobile ? '(immersive overlay)' : 'with fullscreen immersion'}
       </p>
     </div>
   )

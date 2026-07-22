@@ -10,6 +10,8 @@ import SessionController from './SessionController'
 import RandomMomentButton from './RandomMomentButton'
 import EmptyState from './EmptyState'
 
+const MAX_IMAGE_SIZE = 15 * 1024 * 1024
+
 export default function IntimateContainer({ onLock }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -19,10 +21,13 @@ export default function IntimateContainer({ onLock }) {
   const [galleryPhotos, setGalleryPhotos] = useState([])
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState(0)
-  const [sessionMode, setSessionMode] = useState(false) // eslint-disable-line no-unused-vars
+  const [sessionMode, setSessionMode] = useState(false)
   const [activeMood, setActiveMood] = useState('none')
+  const [activeTag, setActiveTag] = useState(null)
+  const [importError, setImportError] = useState('')
 
   const isMounted = useRef(true)
+  const audioRef = useRef(null)
 
   useEffect(() => {
     isMounted.current = true
@@ -39,13 +44,25 @@ export default function IntimateContainer({ onLock }) {
     }
   }
 
+  function getAllTags() {
+    const tagSet = new Set()
+    items.forEach((item) => (item.tags || []).forEach((t) => tagSet.add(t)))
+    return Array.from(tagSet).sort()
+  }
+
+  const allTags = getAllTags()
+
+  const filteredItems = activeTag
+    ? items.filter((item) => (item.tags || []).includes(activeTag))
+    : items
+
   async function handleDelete(id) {
     await deleteMedia(id)
     setItems((prev) => prev.filter((i) => i.id !== id))
   }
 
   function handleOpenViewer(item) {
-    const idx = items.findIndex((i) => i.id === item.id)
+    const idx = filteredItems.findIndex((i) => i.id === item.id)
     setViewerIndex(idx)
     document.body.style.overflow = 'hidden'
   }
@@ -64,6 +81,7 @@ export default function IntimateContainer({ onLock }) {
   }
 
   async function handleOpenImport() {
+    setImportError('')
     const photos = await listAllPhotos()
     if (isMounted.current) {
       setGalleryPhotos(photos)
@@ -71,35 +89,58 @@ export default function IntimateContainer({ onLock }) {
     }
   }
 
+  function handleTagSelect(tag) {
+    setActiveTag((prev) => (prev === tag ? null : tag))
+  }
+
   async function handleImport(galleryItem) {
+    setImportError('')
+    if (galleryItem.size && galleryItem.size > MAX_IMAGE_SIZE) {
+      setImportError(`"${galleryItem.name}" exceeds 15MB limit`)
+      return
+    }
     setImporting(true)
     try {
       await importFromUrl(galleryItem.url, galleryItem.name, [], 'default')
       await loadItems()
-    } catch (e) {
-      console.error('Import failed:', e)
+      setImportError('')
+    } catch {
+      setImportError('Failed to import image')
     }
     setImporting(false)
     setShowImport(false)
   }
 
   async function handleImportAll() {
+    setImportError('')
     setImporting(true)
     const total = galleryPhotos.length
     let imported = 0
+    let hasError = false
     for (const photo of galleryPhotos) {
       if (!isMounted.current) break
+      if (photo.size && photo.size > MAX_IMAGE_SIZE) {
+        hasError = true
+        continue
+      }
       try {
         await importFromUrl(photo.url, photo.name, [], 'default')
         imported++
         setImportProgress(Math.round((imported / total) * 100))
-      } catch (e) {
-        console.error('Import failed:', e)
+      } catch {
+        hasError = true
       }
     }
+    if (hasError) setImportError('Some files exceeded 15MB limit and were skipped')
     await loadItems()
     setImporting(false)
     setShowImport(false)
+  }
+
+  function handleSessionStart() {
+    if (audioRef.current && audioRef.current.hasTracks()) {
+      audioRef.current.play()
+    }
   }
 
   function handleEndSession() {
@@ -119,7 +160,7 @@ export default function IntimateContainer({ onLock }) {
             <h1 className="text-sm font-medium text-accent">Intimate</h1>
             {items.length > 0 && (
               <span className="text-[10px] text-muted bg-surface-high px-1.5 py-0.5 rounded-full">
-                {items.length}
+                {filteredItems.length}/{items.length}
               </span>
             )}
           </div>
@@ -133,12 +174,39 @@ export default function IntimateContainer({ onLock }) {
             </button>
           </div>
         </div>
+
         <MoodFilterBar activeMood={activeMood} onMoodChange={setActiveMood} />
+
+        {allTags.length > 0 && (
+          <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto no-scrollbar">
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => handleTagSelect(tag)}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-all active:scale-90 whitespace-nowrap ${
+                  activeTag === tag
+                    ? 'bg-accent text-surface'
+                    : 'bg-surface-high text-muted hover:text-accent'
+                }`}
+              >
+                {tag}
+              </button>
+            ))}
+            {activeTag && (
+              <button
+                onClick={() => setActiveTag(null)}
+                className="px-2 py-1 text-[10px] text-muted hover:text-accent transition-colors"
+              >
+                Clear filter
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {!loading && items.length > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto no-scrollbar">
-          <RandomMomentButton items={items} onShowRandom={handleShowRandom} />
+          <RandomMomentButton items={filteredItems} onShowRandom={handleShowRandom} />
           <button
             onClick={() => setShowCollage(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium bg-surface-high text-muted hover:text-accent transition-all active:scale-90"
@@ -156,7 +224,7 @@ export default function IntimateContainer({ onLock }) {
         </div>
       )}
 
-      <SessionController onEndSession={handleEndSession} />
+      <SessionController onEndSession={handleEndSession} onSessionStart={handleSessionStart} />
 
       {loading ? (
         <div className="gallery-grid px-2 sm:px-4 md:px-6 pt-4">
@@ -164,11 +232,11 @@ export default function IntimateContainer({ onLock }) {
             <div key={i} className="aspect-square rounded-lg bg-surface-high animate-pulse" />
           ))}
         </div>
-      ) : items.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <EmptyState onImport={handleOpenImport} />
       ) : (
         <div className="gallery-grid px-2 sm:px-4 md:px-6 pt-2 fade-in">
-          {items.map((item) => (
+          {filteredItems.map((item) => (
             <IntimateImageCard
               key={item.id}
               item={item}
@@ -179,9 +247,9 @@ export default function IntimateContainer({ onLock }) {
         </div>
       )}
 
-      {viewerIndex !== null && items[viewerIndex] && (
+      {viewerIndex !== null && filteredItems[viewerIndex] && (
         <IntimateViewer
-          items={items}
+          items={filteredItems}
           currentIndex={viewerIndex}
           onClose={handleCloseViewer}
           onNavigate={handleViewerNavigate}
@@ -214,6 +282,12 @@ export default function IntimateContainer({ onLock }) {
               {importing ? `Importing ${importProgress}%` : `Import All (${galleryPhotos.length})`}
             </button>
           </div>
+
+          {importError && (
+            <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/20">
+              <p className="text-[10px] text-red-400">{importError}</p>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto">
             {galleryPhotos.length === 0 ? (
@@ -248,7 +322,7 @@ export default function IntimateContainer({ onLock }) {
         </div>
       )}
 
-      <AudioPlayer />
+      <AudioPlayer ref={audioRef} />
     </div>
   )
 }
