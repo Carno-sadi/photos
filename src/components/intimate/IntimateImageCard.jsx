@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { setTags } from '../../lib/intimateDb'
 
-export default function IntimateImageCard({ item, onOpen, onDelete, onTagsChanged }) {
+export default function IntimateImageCard({ item, onOpen, onDelete, onTagsChanged, onAnimate }) {
   const [loaded, setLoaded] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [showTagEditor, setShowTagEditor] = useState(false)
@@ -90,6 +90,13 @@ export default function IntimateImageCard({ item, onOpen, onDelete, onTagsChange
             className="p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-all active:scale-90 backdrop-blur-sm"
           >
             <span className="material-symbols-outlined text-lg">visibility</span>
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); if (onAnimate) onAnimate(item) }}
+            className="p-2 rounded-full bg-pink-500/30 text-pink-200 hover:bg-pink-500/50 transition-all active:scale-90 backdrop-blur-sm"
+            title="Animate"
+          >
+            <span className="material-symbols-outlined text-lg">play_circle</span>
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); setShowTagEditor(true) }}

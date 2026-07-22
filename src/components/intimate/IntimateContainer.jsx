@@ -8,6 +8,7 @@ import MoodFilterBar from './MoodFilterBar'
 import AudioPlayer from './AudioPlayer'
 import SessionController from './SessionController'
 import RandomMomentButton from './RandomMomentButton'
+import AnimationViewer2d from './AnimationViewer2d'
 import EmptyState from './EmptyState'
 
 export default function IntimateContainer({ onLock }) {
@@ -26,6 +27,7 @@ export default function IntimateContainer({ onLock }) {
   const [importError, setImportError] = useState('')
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [allTagsList, setAllTagsList] = useState([])
+  const [animateItem, setAnimateItem] = useState(null)
 
   const isMounted = useRef(true)
   const audioRef = useRef(null)
@@ -182,6 +184,11 @@ export default function IntimateContainer({ onLock }) {
     setSessionMode(false)
   }
 
+  function handleAnimate(item) {
+    const idx = items.findIndex((i) => i.id === item.id)
+    setAnimateItem(idx >= 0 ? idx : 0)
+  }
+
   async function refreshTagsList() {
     const tags = await getAllTags()
     setAllTagsList(tags)
@@ -295,6 +302,7 @@ export default function IntimateContainer({ onLock }) {
               onOpen={handleOpenViewer}
               onDelete={handleDelete}
               onTagsChanged={refreshTagsList}
+              onAnimate={handleAnimate}
             />
           ))}
         </div>
@@ -406,6 +414,14 @@ export default function IntimateContainer({ onLock }) {
             )}
           </div>
         </div>
+      )}
+
+      {animateItem !== null && items.length > 0 && (
+        <AnimationViewer2d
+          items={items}
+          startIndex={animateItem}
+          onClose={() => setAnimateItem(null)}
+        />
       )}
 
       <AudioPlayer ref={audioRef} />
